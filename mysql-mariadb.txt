@@ -1,0 +1,37 @@
+
+yum groupinstall mariadb mariadb-client -y
+
+firewall-cmd --permanent --add-service=mysql
+firewall-cmd --add-port=3306/tcp --permanent
+firewall-cmd --reload
+firewall-cmd --list-all
+
+ss -tulpn | grep mysql
+netstat -anp | grep 3306
+
+mysql -u root -h localhost -p
+
+UPDATE mysql.user SET Password = PASSWORD('test101') WHERE User = 'root';
+Query OK, 5 rows affected (0.00 sec)
+Rows matched: 5  Changed: 5  Warnings: 0
+
+FLUSH PRIVILEGES;
+Query OK, 0 rows affected (0.00 sec)
+
+SELECT host FROM mysql.user WHERE User = 'root';
++-----------------------+
+| host                  |
++-----------------------+
+| 127.0.0.1             |
+| 192.168.1.11          |
+| ::1                   |
+| localhost             |
+| localhost.localdomain |
++-----------------------+
+5 rows in set (0.00 sec)
+
+mysql -u root -h localhost -p
+(Now try with changed password 'test101'.
+
+Now connect from remote machine using the same command (localhost ==> IP of mariadb machine)
++ and use the new root password

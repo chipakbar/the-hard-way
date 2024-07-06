@@ -1,0 +1,163 @@
+
+
+This document explains in details the steps required to install Prometheus (Monitoring & Reporting Tool), Node Exporter (Host Monitoring Agent) and Grafana (Metric Visualization Tool) in a Multi-Server environment.
+
+Assumptions:
+1. There are two Linux 8.x or 9.x VMs that are setup with bridge network
+   so that they can connect to each other, they can connect to the internet, as well from your host laptop.
+   I've used Red Hat Enterprise Linux release 8.10 (Ootpa) for this.
+2. yum or dnf repo's are fully setup and updated.
+3. IP addresses are as below:
+		Host-1: IP = 192.168.1.7 (Prometheus Server, Node Exporter)
+		Host-2: IP = 192.168.1.4 (Node Exporter, Grafana Server)
+4. All commands executed as root user.
+5. There is at least >10GB free disk space on / File System
+
+
+Steps to install, enable and Configure Prometheus:
+==================================================
+
+# Execute these steps on Host-1: IP = 192.168.1.7
+
+# Download Prometheus Server, Node Exporter from git
+cd ~
+wget https://github.com/prometheus/prometheus/releases/download/v2.53.0/prometheus-2.53.0.linux-amd64.tar.gz
+wget https://github.com/prometheus/node_exporter/releases/download/v1.8.1/node_exporter-1.8.1.linux-amd64.tar.gz
+
+# Extract both archives
+tar -xvzf ~/prometheus-2.53.0.linux-amd64.tar.gz
+tar -xvzf ~/node_exporter-1.8.1.linux-amd64.tar.gz
+
+# Create a prometheus folder to keep all binaries
+mkdir /usr/local/bin/prometheus
+
+# Copy prometheus files/folders
+cd ~/prometheus-2.53.0.linux-amd64/
+cp -p prometheus promtool prometheus.yml /usr/local/bin/prometheus/
+cp -rp consoles console_libraries /usr/local/bin/prometheus/
+
+# Copy node exporter files
+cd ~/node_exporter-1.8.1.linux-amd64
+cp -p node_exporter /usr/local/bin/prometheus/
+
+# Create config for node exporters
+vim /usr/local/bin/prometheus/prometheus.yml
+
+# Add the below under scrape_configs
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+  - job_name: "node-exporter_1"
+    static_configs:
+      - targets: ["localhost:9100"]
+  - job_name: "node-exporter_2"
+    static_configs:
+      - targets: ["192.168.1.4:9100"]
+# Save and quit
+
+# Now create service files for auto-startup
+cd /usr/lib/systemd/system/
+vim prometheus.service
+# Paste the below contents in insert mode
+[Unit]
+Description=Prometheus Monitoring
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Restart=always
+ExecStart=/usr/local/bin/prometheus/prometheus --config.file=/usr/local/bin/prometheus/prometheus.yml
+
+[Install]
+WantedBy=multi-user.target
+#Save and quit
+
+vim node_exporter.service
+# Paste the below contents in insert mode
+[Unit]
+Description=Prometheus Monitoring
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Restart=always
+ExecStart=/usr/local/bin/prometheus/node_exporter
+
+[Install]
+WantedBy=multi-user.target
+#Save and quit
+
+# Enable required ports
+firewall-cmd --permanent --add-port=9090/tcp
+firewall-cmd --permanent --add-port=9093/tcp
+firewall-cmd --permanent --add-port=9094/tcp
+firewall-cmd --reload
+
+
+# Now start both services
+systemctl enable --now prometheus.service
+systemctl enable --now node_exporter.service
+
+
+# Now access the prometheus end-point from the browser of your local laptop
+http://192.168.1.7:9090/
+
+========================================================
+Steps to install, enable Grafana and configure Dashboard:
+========================================================
+
+# Execute these steps on Host-2: IP = 192.168.1.4
+
+# Install Grafana Server
+yum install -y grafana*
+
+# This will create a user called grafana in the Linux OS
+id grafana
+
+# Start the Grafana Server and enable it during system reboot
+systemctl enable --now grafana-server
+
+# Check the status of Grafana service
+systemctl status grafana-server
+
+# Check that Grafana port is listening
+netstat -anp | grep -w LISTEN | grep 3000
+
+# Enable Grafana listen port to access console externally (from your laptop host OS)
+firewall-cmd --permanent --add-port=3000/tcp
+
+# Refresh the firewall rules to reflect above change
+firewall-cmd --reload
+
+# Check the network connectivity from Grafana host to Prometheus host on prometheus port
+curl -k -v http://192.168.1.7:9090/
+
+# Enable Grafana in SELinux to allow external TCP connection
+setsebool -P grafana_can_tcp_connect_prometheus_port 1
+
+# Restart Grafana
+systemctl restart grafana-server
+
+# Now access Grafana console from the web browser of your laptop
+http://192.168.1.4:3000/
+
+Click on Data Sources
+	> Add Data Sources
+		> Click on the Prometheus type data source
+			Name: Leave it as Prometheus
+			HTTP URL: http://192.168.1.7:9090/
+			[Save & Test]
+
+Now click on Top Left Grafana Logo for Home page
+ > Click on 4XSquares Icon for Dashboards
+	> On right side open the [New] drop-down
+		> Click on Import
+			> Under Import via grafana.com input this
+				Dashboard URL or ID:
+					> 1860
+						> Click on [Load]
+
+Thats it, your pre-built dashboard is ready with host metrics.
+
+========================================================
